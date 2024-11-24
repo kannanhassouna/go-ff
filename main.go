@@ -7,7 +7,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strconv"
 
 	flagsmith "github.com/Flagsmith/flagsmith-go-client/v3"
 	"github.com/gin-gonic/gin"
@@ -60,6 +59,16 @@ func main(){
 
 	r.GET("/beta", func(c *gin.Context){
 		c.JSON(http.StatusOK, gin.H{"message": "this is beta endpoint"})
+	})
+
+	r.GET("/ping-ff", func(c *gin.Context){
+		err, flags := getFeatureFlags()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error getting feature flags"})
+
+		} else {
+			c.JSON(http.StatusOK, flags.AllFlags())
+		}
 	})
 	r.Run(":" + os.Getenv("PORT"))
 }

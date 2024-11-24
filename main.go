@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 
+	flagsmith "github.com/Flagsmith/flagsmith-go-client/v3"
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis_rate/v10"
 	"github.com/joho/godotenv"
@@ -21,6 +22,7 @@ import (
 var (
 	redisClient *redis.Client
 	limiter *redis_rate.Limiter
+	flagsmithClient *flagsmith.Client
 )
 
 func initClients(){
@@ -28,6 +30,7 @@ func initClients(){
 		Addr: os.Getenv("REDIS_URL"),
 	})
 	limiter = redis_rate.NewLimiter(redisClient)
+	flagsmithClient = flagsmith.NewClient(os.Getenv("FLAGSMITH_KEY"))
 }
 
 
@@ -44,28 +47,32 @@ func main(){
 	defer redisClient.Close()
 
 	r := gin.Default()
-	r.GET("/ping", func(c *gin.Context){
-		remainingLimit, err := rateLimitCall(c.ClientIP())
+
+	r.GET("/ping", func(c *gin.Context) {
+		remainingRate, err := rateLimitCall(c.ClientIP())
 
 		if err != nil {
 			c.JSON(http.StatusTooManyRequests, gin.H{"error": "Rate Limit Hit"})
 		} else {
-			c.JSON(http.StatusOK, gin.H{"Your left over API request is ": remainingLimit})
+			c.JSON(http.StatusOK, gin.H{"Your left over API request": remainingRate})
 		}
 	})
 
-	r.GET("/beta", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"message" : "This is beta endpoint"})
+	r.GET("/beta", func(c *gin.Context){
+		c.JSON(http.StatusOK, gin.H{"message": "this is beta endpoint"})
 	})
-
 	r.Run(":" + os.Getenv("PORT"))
 }
 
 
 func rateLimitCall(ClientIP string)(int, error) {
 	ctx := context.Background()
-	rateLimitString := os.Getenv("RATE_LIMIT")
-	RATE_LIMIT, _ := strconv.Atoi(rateLimitString)
+	_, flags := getFeatureFlags()
+	rateLimitInterface, _ := flags.GetFeatureValue("rate_limit")
+
+	RATE_LIMIT := int(rateLimitInterface.(float64))
+
+	fmt.Println("Current Rate Limit is", RATE_LIMIT)
 
 	res, err := limiter.Allow(ctx, ClientIP, redis_rate.PerHour(RATE_LIMIT))
 
@@ -81,4 +88,11 @@ func rateLimitCall(ClientIP string)(int, error) {
 
 	return res.Remaining, nil
 
+}
+
+func getFeatureFlags() (error, flagsmith.Flags) {
+	ctx := context.Background()
+	flags, err := flagsmithClient.GetEnvironmentFlags(ctx)
+
+	return err, flags
 }
